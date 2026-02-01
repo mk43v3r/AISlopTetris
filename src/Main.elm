@@ -8,6 +8,8 @@ import Html.Events exposing (onClick)
 import Json.Decode as Decode
 import Random
 import Time
+import Task
+import Process
 
 
 -- MAIN
@@ -27,12 +29,13 @@ main =
 type alias Model =
     { board : Board
     , currentPiece : Maybe Piece
-    , nextPiece : TetrominoType
+    , nextPieces : List TetrominoType
     , score : Int
     , level : Int
     , linesCleared : Int
     , gameState : GameState
     , dropSpeed : Float
+    , clearingRows : List Int
     }
 
 type GameState
@@ -110,14 +113,19 @@ init : () -> ( Model, Cmd Msg )
 init _ =
     ( { board = emptyBoard
       , currentPiece = Nothing
-      , nextPiece = I
+      , nextPieces = [ I, O, T ]
       , score = 0
       , level = 1
       , linesCleared = 0
       , gameState = Playing
       , dropSpeed = 1000
+      , clearingRows = []
       }
-    , Random.generate NewPiece randomTetromino
+    , Cmd.batch
+        [ Random.generate NewPiece randomTetromino
+        , Random.generate NewPiece randomTetromino
+        , Random.generate NewPiece randomTetromino
+        ]
     )
 
 emptyBoard : Board
@@ -141,6 +149,7 @@ type Msg
     | Drop
     | TogglePause
     | Restart
+    | CompleteClearAnimation
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
@@ -156,12 +165,15 @@ update msg model =
                 Nothing ->
                     -- First piece or after a piece locks
                     let
-                        piece = createPiece model.nextPiece
+                        nextPiece = List.head model.nextPieces |> Maybe.withDefault I
+                        piece = createPiece nextPiece
+                        remainingPieces = List.drop 1 model.nextPieces
+                        updatedPieces = remainingPieces ++ [ tetrominoType ]
                     in
                     if canPlacePiece piece model.board then
                         ( { model 
                           | currentPiece = Just piece
-                          , nextPiece = tetrominoType
+                          , nextPieces = updatedPieces
                           }
                         , Cmd.none
                         )
@@ -170,8 +182,8 @@ update msg model =
                         ( { model | gameState = GameOver }, Cmd.none )
 
                 Just _ ->
-                    -- Update next piece only
-                    ( { model | nextPiece = tetrominoType }, Cmd.none )
+                    -- Add to end of next pieces queue
+                    ( { model | nextPieces = model.nextPieces ++ [ tetrominoType ] }, Cmd.none )
 
         MoveLeft ->
             if model.gameState == Playing then
@@ -214,6 +226,34 @@ update msg model =
 
         Restart ->
             init ()
+
+        CompleteClearAnimation ->
+            let
+                ( clearedBoard, linesCleared ) =
+                    clearLines model.board
+
+                newLinesCleared =
+                    model.linesCleared + linesCleared
+
+                newScore =
+                    model.score + scoreForLines linesCleared model.level
+
+                newLevel =
+                    1 + (newLinesCleared // 10)
+
+                newDropSpeed =
+                    max 100 (1000 - toFloat (newLevel - 1) * 75)
+            in
+            ( { model
+                | board = clearedBoard
+                , clearingRows = []
+                , score = newScore
+                , level = newLevel
+                , linesCleared = newLinesCleared
+                , dropSpeed = newDropSpeed
+              }
+            , Random.generate NewPiece randomTetromino
+            )
 
 createPiece : TetrominoType -> Piece
 createPiece tetrominoType =
@@ -267,31 +307,40 @@ lockPiece model =
                 newBoard =
                     placePieceOnBoard piece model.board
 
-                ( clearedBoard, linesCleared ) =
-                    clearLines newBoard
+                rowsToClear =
+                    getRowsToClear newBoard
 
-                newLinesCleared =
-                    model.linesCleared + linesCleared
-
-                newScore =
-                    model.score + scoreForLines linesCleared model.level
-
-                newLevel =
-                    1 + (newLinesCleared // 10)
-
-                newDropSpeed =
-                    max 100 (1000 - toFloat (newLevel - 1) * 100)
+                linesCleared =
+                    List.length rowsToClear
             in
-            ( { model
-                | board = clearedBoard
-                , currentPiece = Nothing
-                , score = newScore
-                , level = newLevel
-                , linesCleared = newLinesCleared
-                , dropSpeed = newDropSpeed
-              }
-            , Random.generate NewPiece randomTetromino
-            )
+            if linesCleared > 0 then
+                -- Show clearing animation first
+                ( { model 
+                    | board = newBoard
+                    , currentPiece = Nothing
+                    , clearingRows = rowsToClear
+                  }
+                , Task.perform (\_ -> CompleteClearAnimation) (Process.sleep 400)
+                )
+            else
+                -- No lines to clear, spawn next piece immediately
+                ( { model 
+                    | board = newBoard
+                    , currentPiece = Nothing
+                  }
+                , Random.generate NewPiece randomTetromino
+                )
+
+getRowsToClear : Board -> List Int
+getRowsToClear board =
+    board
+        |> List.indexedMap (\index row -> 
+            if isLineFull row then
+                Just index
+            else
+                Nothing
+        )
+        |> List.filterMap identity
 
 scoreForLines : Int -> Int -> Int
 scoreForLines lines level =
@@ -512,21 +561,29 @@ keyDecoder =
 view : Model -> Html Msg
 view model =
     div
-        [ style "font-family" "Arial, sans-serif"
+        [ style "font-family" "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"
         , style "display" "flex"
         , style "justify-content" "center"
         , style "align-items" "center"
         , style "min-height" "100vh"
-        , style "background-color" "#1a1a2e"
+        , style "background" "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)"
         , style "color" "#eee"
         ]
         [ div
             [ style "text-align" "center" ]
-            [ h1 [ style "color" "#00ff88" ] [ text "TETRIS" ]
+            [ h1 
+                [ style "color" "#00ff88"
+                , style "font-size" "48px"
+                , style "margin-bottom" "20px"
+                , style "text-shadow" "0 0 20px rgba(0, 255, 136, 0.5), 0 0 40px rgba(0, 255, 136, 0.3)"
+                , style "letter-spacing" "8px"
+                ] 
+                [ text "TETRIS" ]
             , div
                 [ style "display" "flex"
                 , style "gap" "20px"
                 , style "justify-content" "center"
+                , style "align-items" "flex-start"
                 ]
                 [ viewBoard model
                 , viewSidebar model
@@ -556,8 +613,16 @@ viewBoard model =
         [ style "border" "3px solid #00ff88"
         , style "background-color" "#0f0f23"
         , style "display" "inline-block"
+        , style "box-shadow" "0 0 20px rgba(0, 255, 136, 0.3), inset 0 0 30px rgba(0, 0, 0, 0.5)"
+        , style "border-radius" "5px"
         ]
-        (List.map viewRow boardWithPiece)
+        (List.indexedMap (viewRowWithIndex model) boardWithPiece)
+
+viewRowWithIndex : Model -> Int -> List Cell -> Html Msg
+viewRowWithIndex model rowIndex row =
+    div
+        [ style "display" "flex" ]
+        (List.indexedMap (viewCellInRow rowIndex model) row)
 
 renderPieceOnBoard : Piece -> Board -> Board
 renderPieceOnBoard piece board =
@@ -582,29 +647,63 @@ renderPieceOnBoard piece board =
         )
         board
 
-viewRow : List Cell -> Html Msg
-viewRow row =
-    div
-        [ style "display" "flex" ]
-        (List.map viewCell row)
-
-viewCell : Cell -> Html Msg
-viewCell cell =
+viewCellInRow : Int -> Model -> Int -> Cell -> Html Msg
+viewCellInRow rowIndex model colIndex cell =
     let
-        color =
-            case cell of
-                Empty ->
-                    "#0f0f23"
+        isClearing = List.member rowIndex model.clearingRows
+        
+        (bgColor, borderColor, boxShadow) =
+            if isClearing then
+                -- Flash white when clearing
+                ("#ffffff", "#ffff00", "0 0 20px #ffff00, inset 0 0 10px #ffffff")
+            else
+                case cell of
+                    Empty ->
+                        ("#0f0f23", "#16213e", "inset 0 0 5px rgba(0,0,0,0.3)")
 
-                Filled c ->
-                    colorToString c
+                    Filled c ->
+                        let
+                            color = colorToString c
+                            lightColor = colorToLightString c
+                        in
+                        (color, lightColor, "0 0 8px " ++ color ++ "80")
     in
     div
         [ style "width" "25px"
         , style "height" "25px"
-        , style "border" "1px solid #16213e"
-        , style "background-color" color
+        , style "border" ("1px solid " ++ borderColor)
+        , style "background" bgColor
         , style "box-sizing" "border-box"
+        , style "box-shadow" boxShadow
+        , style "transition" "all 0.15s ease"
+        , style "border-radius" "2px"
+        ]
+        []
+
+viewCell : Cell -> Html Msg
+viewCell cell =
+    let
+        (bgColor, borderColor, boxShadow) =
+            case cell of
+                Empty ->
+                    ("#0f0f23", "#16213e", "inset 0 0 5px rgba(0,0,0,0.3)")
+
+                Filled c ->
+                    let
+                        color = colorToString c
+                        lightColor = colorToLightString c
+                    in
+                    (color, lightColor, "0 0 8px " ++ color ++ "80")
+    in
+    div
+        [ style "width" "25px"
+        , style "height" "25px"
+        , style "border" ("1px solid " ++ borderColor)
+        , style "background" bgColor
+        , style "box-sizing" "border-box"
+        , style "box-shadow" boxShadow
+        , style "transition" "all 0.15s ease"
+        , style "border-radius" "2px"
         ]
         []
 
@@ -619,6 +718,17 @@ colorToString color =
         Blue -> "#0000ff"
         Orange -> "#ff8800"
 
+colorToLightString : Color -> String
+colorToLightString color =
+    case color of
+        Cyan -> "#66f8ff"
+        Yellow -> "#fff366"
+        Purple -> "#d266ff"
+        Green -> "#66ff66"
+        Red -> "#ff6666"
+        Blue -> "#6666ff"
+        Orange -> "#ffaa66"
+
 viewSidebar : Model -> Html Msg
 viewSidebar model =
     div
@@ -632,35 +742,56 @@ viewSidebar model =
 viewScoreboard : Model -> Html Msg
 viewScoreboard model =
     div
-        [ style "background-color" "#16213e"
+        [ style "background" "linear-gradient(135deg, #16213e 0%, #1a2847 100%)"
         , style "padding" "15px"
         , style "border-radius" "8px"
         , style "margin-bottom" "20px"
+        , style "box-shadow" "0 4px 15px rgba(0, 0, 0, 0.3)"
+        , style "border" "1px solid #2a3a5e"
         ]
-        [ h2 [ style "margin-top" "0", style "color" "#00ff88" ] [ text "Score" ]
-        , p [ style "font-size" "24px", style "margin" "10px 0" ] [ text (String.fromInt model.score) ]
-        , h2 [ style "margin-top" "15px", style "color" "#00ff88" ] [ text "Level" ]
-        , p [ style "font-size" "24px", style "margin" "10px 0" ] [ text (String.fromInt model.level) ]
-        , h2 [ style "margin-top" "15px", style "color" "#00ff88" ] [ text "Lines" ]
-        , p [ style "font-size" "24px", style "margin" "10px 0" ] [ text (String.fromInt model.linesCleared) ]
+        [ h2 [ style "margin-top" "0", style "color" "#00ff88", style "text-shadow" "0 0 10px rgba(0, 255, 136, 0.5)" ] [ text "Score" ]
+        , p [ style "font-size" "28px", style "margin" "10px 0", style "font-weight" "bold", style "color" "#00ff88" ] [ text (String.fromInt model.score) ]
+        , h2 [ style "margin-top" "15px", style "color" "#00ff88", style "text-shadow" "0 0 10px rgba(0, 255, 136, 0.5)" ] [ text "Level" ]
+        , p [ style "font-size" "28px", style "margin" "10px 0", style "font-weight" "bold", style "color" "#00ff88" ] [ text (String.fromInt model.level) ]
+        , h2 [ style "margin-top" "15px", style "color" "#00ff88", style "text-shadow" "0 0 10px rgba(0, 255, 136, 0.5)" ] [ text "Lines" ]
+        , p [ style "font-size" "28px", style "margin" "10px 0", style "font-weight" "bold", style "color" "#00ff88" ] [ text (String.fromInt model.linesCleared) ]
         ]
 
 viewNextPiece : Model -> Html Msg
 viewNextPiece model =
     div
-        [ style "background-color" "#16213e"
+        [ style "background" "linear-gradient(135deg, #16213e 0%, #1a2847 100%)"
         , style "padding" "15px"
         , style "border-radius" "8px"
+        , style "box-shadow" "0 4px 15px rgba(0, 0, 0, 0.3)"
+        , style "border" "1px solid #2a3a5e"
         ]
-        [ h2 [ style "margin-top" "0", style "color" "#00ff88" ] [ text "Next" ]
+        [ h2 [ style "margin-top" "0", style "color" "#00ff88", style "text-shadow" "0 0 10px rgba(0, 255, 136, 0.5)" ] [ text "Next Pieces" ]
         , div
-            [ style "background-color" "#0f0f23"
-            , style "padding" "10px"
-            , style "display" "inline-block"
-            , style "border" "2px solid #00ff88"
+            [ style "display" "flex"
+            , style "flex-direction" "column"
+            , style "gap" "10px"
             ]
-            [ viewTetromino model.nextPiece ]
+            (List.indexedMap viewNextPiecePreview (List.take 3 model.nextPieces))
         ]
+
+viewNextPiecePreview : Int -> TetrominoType -> Html Msg
+viewNextPiecePreview index tetrominoType =
+    let
+        opacity = String.fromFloat (1.0 - (toFloat index * 0.25))
+        scale = String.fromFloat (1.0 - (toFloat index * 0.1))
+    in
+    div
+        [ style "background-color" "#0f0f23"
+        , style "padding" "8px"
+        , style "border-radius" "5px"
+        , style "border" (if index == 0 then "2px solid #00ff88" else "2px solid #2a2a4e")
+        , style "transition" "all 0.3s ease"
+        , style "opacity" opacity
+        , style "transform" ("scale(" ++ scale ++ ")")
+        , style "box-shadow" (if index == 0 then "0 0 15px rgba(0, 255, 136, 0.3)" else "0 2px 8px rgba(0, 0, 0, 0.2)")
+        ]
+        [ viewTetromino tetrominoType ]
 
 viewTetromino : TetrominoType -> Html Msg
 viewTetromino tetrominoType =
@@ -683,35 +814,46 @@ viewTetromino tetrominoType =
                 )
     in
     div []
-        (List.map viewRow grid)
+        (List.map viewRowSimple grid)
+
+viewRowSimple : List Cell -> Html Msg
+viewRowSimple row =
+    div
+        [ style "display" "flex" ]
+        (List.map viewCell row)
 
 viewControls : Html Msg
 viewControls =
     div
         [ style "margin-top" "20px"
-        , style "background-color" "#16213e"
+        , style "background" "linear-gradient(135deg, #16213e 0%, #1a2847 100%)"
         , style "padding" "15px"
         , style "border-radius" "8px"
         , style "max-width" "500px"
         , style "margin-left" "auto"
         , style "margin-right" "auto"
+        , style "box-shadow" "0 4px 15px rgba(0, 0, 0, 0.3)"
+        , style "border" "1px solid #2a3a5e"
         ]
-        [ h2 [ style "color" "#00ff88", style "margin-top" "0" ] [ text "Controls" ]
-        , p [] [ text "← → : Move Left/Right" ]
-        , p [] [ text "↓ : Move Down" ]
-        , p [] [ text "↑ : Rotate" ]
-        , p [] [ text "Space : Hard Drop" ]
-        , p [] [ text "P : Pause" ]
+        [ h2 [ style "color" "#00ff88", style "margin-top" "0", style "text-shadow" "0 0 10px rgba(0, 255, 136, 0.5)" ] [ text "Controls" ]
+        , p [ style "margin" "8px 0" ] [ text "← → : Move Left/Right" ]
+        , p [ style "margin" "8px 0" ] [ text "↓ : Move Down" ]
+        , p [ style "margin" "8px 0" ] [ text "↑ : Rotate" ]
+        , p [ style "margin" "8px 0" ] [ text "Space : Hard Drop" ]
+        , p [ style "margin" "8px 0" ] [ text "P : Pause" ]
         , button
             [ onClick Restart
             , style "margin-top" "10px"
             , style "padding" "10px 20px"
             , style "font-size" "16px"
-            , style "background-color" "#00ff88"
+            , style "background" "linear-gradient(135deg, #00ff88 0%, #00cc6a 100%)"
             , style "color" "#0f0f23"
             , style "border" "none"
             , style "border-radius" "5px"
             , style "cursor" "pointer"
+            , style "font-weight" "bold"
+            , style "box-shadow" "0 4px 10px rgba(0, 255, 136, 0.3)"
+            , style "transition" "all 0.3s ease"
             ]
             [ text "New Game" ]
         ]
@@ -723,22 +865,32 @@ viewGameOver =
         , style "top" "50%"
         , style "left" "50%"
         , style "transform" "translate(-50%, -50%)"
-        , style "background-color" "#16213e"
-        , style "padding" "30px"
-        , style "border-radius" "10px"
+        , style "background" "linear-gradient(135deg, #16213e 0%, #1a2847 100%)"
+        , style "padding" "40px"
+        , style "border-radius" "15px"
         , style "border" "3px solid #ff0000"
         , style "z-index" "100"
+        , style "box-shadow" "0 0 30px rgba(255, 0, 0, 0.5), 0 10px 50px rgba(0, 0, 0, 0.8)"
         ]
-        [ h1 [ style "color" "#ff0000", style "margin-top" "0" ] [ text "GAME OVER" ]
+        [ h1 
+            [ style "color" "#ff0000"
+            , style "margin-top" "0"
+            , style "text-shadow" "0 0 20px rgba(255, 0, 0, 0.8)"
+            , style "font-size" "36px"
+            ] 
+            [ text "GAME OVER" ]
         , button
             [ onClick Restart
             , style "padding" "15px 30px"
             , style "font-size" "18px"
-            , style "background-color" "#00ff88"
+            , style "background" "linear-gradient(135deg, #00ff88 0%, #00cc6a 100%)"
             , style "color" "#0f0f23"
             , style "border" "none"
-            , style "border-radius" "5px"
+            , style "border-radius" "8px"
             , style "cursor" "pointer"
+            , style "font-weight" "bold"
+            , style "box-shadow" "0 4px 15px rgba(0, 255, 136, 0.4)"
+            , style "transition" "all 0.3s ease"
             ]
             [ text "Play Again" ]
         ]
@@ -750,12 +902,23 @@ viewPaused =
         , style "top" "50%"
         , style "left" "50%"
         , style "transform" "translate(-50%, -50%)"
-        , style "background-color" "#16213e"
-        , style "padding" "30px"
-        , style "border-radius" "10px"
+        , style "background" "linear-gradient(135deg, #16213e 0%, #1a2847 100%)"
+        , style "padding" "40px"
+        , style "border-radius" "15px"
         , style "border" "3px solid #00ff88"
         , style "z-index" "100"
+        , style "box-shadow" "0 0 30px rgba(0, 255, 136, 0.5), 0 10px 50px rgba(0, 0, 0, 0.8)"
         ]
-        [ h1 [ style "color" "#00ff88", style "margin-top" "0" ] [ text "PAUSED" ]
-        , p [] [ text "Press P to continue" ]
+        [ h1 
+            [ style "color" "#00ff88"
+            , style "margin-top" "0"
+            , style "text-shadow" "0 0 20px rgba(0, 255, 136, 0.8)"
+            , style "font-size" "36px"
+            ] 
+            [ text "PAUSED" ]
+        , p 
+            [ style "font-size" "18px"
+            , style "color" "#cccccc"
+            ] 
+            [ text "Press P to continue" ]
         ]
