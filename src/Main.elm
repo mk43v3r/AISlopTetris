@@ -1116,13 +1116,13 @@ viewStatistics model =
     else
         div
             [ style "background" "linear-gradient(135deg, #16213e 0%, #1a2847 100%)"
-            , style "padding" "15px"
+            , style "padding" "12px"
             , style "border-radius" "8px"
             , style "margin-top" "20px"
             , style "box-shadow" "0 4px 15px rgba(0, 0, 0, 0.3)"
             , style "border" "1px solid #2a3a5e"
             ]
-            [ h2 [ style "margin-top" "0", style "color" "#00ff88", style "font-size" "16px", style "text-shadow" "0 0 10px rgba(0, 255, 136, 0.5)" ] [ text "Statistics" ]
+            [ h2 [ style "margin-top" "0", style "margin-bottom" "8px", style "color" "#00ff88", style "font-size" "16px", style "text-shadow" "0 0 10px rgba(0, 255, 136, 0.5)" ] [ text "Statistics" ]
             , viewStatRow "I" stats.iPieces Cyan
             , viewStatRow "O" stats.oPieces Yellow
             , viewStatRow "T" stats.tPieces Purple
@@ -1138,25 +1138,25 @@ viewStatRow name count color =
         [ style "display" "flex"
         , style "justify-content" "space-between"
         , style "align-items" "center"
-        , style "margin" "5px 0"
-        , style "padding" "3px"
+        , style "margin" "3px 0"
+        , style "padding" "2px"
         ]
         [ div
             [ style "display" "flex"
             , style "align-items" "center"
-            , style "gap" "8px"
+            , style "gap" "6px"
             ]
             [ div
-                [ style "width" "20px"
-                , style "height" "20px"
+                [ style "width" "16px"
+                , style "height" "16px"
                 , style "background" (colorToString color)
                 , style "border" ("1px solid " ++ colorToLightString color)
                 , style "border-radius" "2px"
                 ]
                 []
-            , p [ style "margin" "0", style "color" "#ccc", style "font-size" "14px" ] [ text name ]
+            , p [ style "margin" "0", style "color" "#ccc", style "font-size" "13px" ] [ text name ]
             ]
-        , p [ style "margin" "0", style "color" "#00ff88", style "font-weight" "bold", style "font-size" "14px" ] [ text (String.fromInt count) ]
+        , p [ style "margin" "0", style "color" "#00ff88", style "font-weight" "bold", style "font-size" "13px" ] [ text (String.fromInt count) ]
         ]
 
 viewControls : Html Msg
