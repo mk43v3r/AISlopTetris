@@ -2,14 +2,16 @@ module Main exposing (main)
 
 import Browser
 import Browser.Events exposing (onKeyDown)
-import Html exposing (Html, div, h1, h2, p, text, button)
-import Html.Attributes exposing (style, class)
+import Html exposing (Html, div, h1, h2, p, text, button, audio, source)
+import Html.Attributes exposing (style, class, src, id, autoplay, loop, attribute)
 import Html.Events exposing (onClick)
 import Json.Decode as Decode
 import Random
 import Time
 import Task
 import Process
+import Svg exposing (svg, rect, g, Svg)
+import Svg.Attributes as SvgAttr
 
 
 -- MAIN
@@ -36,6 +38,8 @@ type alias Model =
     , gameState : GameState
     , dropSpeed : Float
     , clearingRows : List Int
+    , animationFrame : Float
+    , lastSound : String
     }
 
 type GameState
@@ -55,6 +59,8 @@ type alias Piece =
     , position : Position
     , tetrominoType : TetrominoType
     , color : Color
+    , rotation : Int
+    , visualRotation : Float
     }
 
 type alias Position =
@@ -120,6 +126,8 @@ init _ =
       , gameState = Playing
       , dropSpeed = 1000
       , clearingRows = []
+      , animationFrame = 0
+      , lastSound = ""
       }
     , Cmd.batch
         [ Random.generate NewPiece randomTetromino
@@ -141,6 +149,7 @@ randomTetromino =
 
 type Msg
     = Tick Time.Posix
+    | AnimationTick Time.Posix
     | NewPiece TetrominoType
     | MoveLeft
     | MoveRight
@@ -159,6 +168,27 @@ update msg model =
                 moveDown model
             else
                 ( model, Cmd.none )
+
+        AnimationTick _ ->
+            -- Update visual rotation animation
+            case model.currentPiece of
+                Just piece ->
+                    let
+                        targetRotation = toFloat piece.rotation * 90
+                        currentRotation = piece.visualRotation
+                        diff = targetRotation - currentRotation
+                        newRotation = 
+                            if abs diff < 5 then
+                                targetRotation
+                            else
+                                currentRotation + diff * 0.3
+                        
+                        updatedPiece = { piece | visualRotation = newRotation }
+                    in
+                    ( { model | currentPiece = Just updatedPiece }, Cmd.none )
+                
+                Nothing ->
+                    ( model, Cmd.none )
 
         NewPiece tetrominoType ->
             case model.currentPiece of
@@ -187,13 +217,23 @@ update msg model =
 
         MoveLeft ->
             if model.gameState == Playing then
-                ( movePiece { x = -1, y = 0 } model, Cmd.none )
+                let
+                    newModel = movePiece { x = -1, y = 0 } model
+                in
+                ( if newModel /= model then { newModel | lastSound = "move" } else newModel
+                , Cmd.none 
+                )
             else
                 ( model, Cmd.none )
 
         MoveRight ->
             if model.gameState == Playing then
-                ( movePiece { x = 1, y = 0 } model, Cmd.none )
+                let
+                    newModel = movePiece { x = 1, y = 0 } model
+                in
+                ( if newModel /= model then { newModel | lastSound = "move" } else newModel
+                , Cmd.none 
+                )
             else
                 ( model, Cmd.none )
 
@@ -261,6 +301,8 @@ createPiece tetrominoType =
     , position = { x = 3, y = 0 }
     , tetrominoType = tetrominoType
     , color = getTetrominoColor tetrominoType
+    , rotation = 0
+    , visualRotation = 0
     }
 
 movePiece : Position -> Model -> Model
@@ -319,6 +361,7 @@ lockPiece model =
                     | board = newBoard
                     , currentPiece = Nothing
                     , clearingRows = rowsToClear
+                    , lastSound = "clear"
                   }
                 , Task.perform (\_ -> CompleteClearAnimation) (Process.sleep 400)
                 )
@@ -327,6 +370,7 @@ lockPiece model =
                 ( { model 
                     | board = newBoard
                     , currentPiece = Nothing
+                    , lastSound = "lock"
                   }
                 , Random.generate NewPiece randomTetromino
                 )
@@ -393,10 +437,14 @@ rotatePiece model =
                     rotateShape piece.shape
 
                 rotatedPiece =
-                    { piece | shape = rotatedShape }
+                    { piece 
+                    | shape = rotatedShape
+                    , rotation = piece.rotation + 1
+                    , visualRotation = toFloat (piece.rotation + 1) * 90
+                    }
             in
             if canPlacePiece rotatedPiece model.board then
-                { model | currentPiece = Just rotatedPiece }
+                { model | currentPiece = Just rotatedPiece, lastSound = "rotate" }
             else
                 -- Try wall kicks
                 tryWallKicks rotatedPiece model
@@ -418,7 +466,7 @@ tryWallKicks piece model =
     in
     case List.filterMap tryOffset offsets |> List.head of
         Just kickedPiece ->
-            { model | currentPiece = Just kickedPiece }
+            { model | currentPiece = Just kickedPiece, lastSound = "rotate" }
         
         Nothing ->
             model
@@ -521,6 +569,7 @@ subscriptions model =
             Time.every model.dropSpeed Tick
           else
             Sub.none
+        , Browser.Events.onAnimationFrame AnimationTick
         , onKeyDown keyDecoder
         ]
 
@@ -568,6 +617,7 @@ view model =
         , style "min-height" "100vh"
         , style "background" "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)"
         , style "color" "#eee"
+        , attribute "data-sound" model.lastSound
         ]
         [ div
             [ style "text-align" "center" ]
@@ -601,13 +651,9 @@ view model =
 viewBoard : Model -> Html Msg
 viewBoard model =
     let
-        boardWithPiece =
-            case model.currentPiece of
-                Nothing ->
-                    model.board
-
-                Just piece ->
-                    renderPieceOnBoard piece model.board
+        cellSize = 25
+        boardWidthPx = toFloat boardWidth * cellSize
+        boardHeightPx = toFloat boardHeight * cellSize
     in
     div
         [ style "border" "3px solid #00ff88"
@@ -615,68 +661,107 @@ viewBoard model =
         , style "display" "inline-block"
         , style "box-shadow" "0 0 20px rgba(0, 255, 136, 0.3), inset 0 0 30px rgba(0, 0, 0, 0.5)"
         , style "border-radius" "5px"
+        , style "overflow" "hidden"
         ]
-        (List.indexedMap (viewRowWithIndex model) boardWithPiece)
+        [ svg
+            [ SvgAttr.width (String.fromFloat boardWidthPx)
+            , SvgAttr.height (String.fromFloat boardHeightPx)
+            , SvgAttr.viewBox ("0 0 " ++ String.fromFloat boardWidthPx ++ " " ++ String.fromFloat boardHeightPx)
+            ]
+            [ -- Draw locked cells
+              g [] (viewLockedCells model.board model.clearingRows cellSize)
+            -- Draw current piece with rotation
+            , case model.currentPiece of
+                Just piece ->
+                    viewPieceSVG piece cellSize
+                
+                Nothing ->
+                    g [] []
+            ]
+        ]
 
-viewRowWithIndex : Model -> Int -> List Cell -> Html Msg
-viewRowWithIndex model rowIndex row =
-    div
-        [ style "display" "flex" ]
-        (List.indexedMap (viewCellInRow rowIndex model) row)
-
-renderPieceOnBoard : Piece -> Board -> Board
-renderPieceOnBoard piece board =
-    let
-        positions =
-            getPiecePositions piece
-
-        isPartOfPiece : Int -> Int -> Bool
-        isPartOfPiece x y =
-            List.any (\pos -> pos.x == x && pos.y == y) positions
-    in
-    List.indexedMap
-        (\y row ->
-            List.indexedMap
-                (\x cell ->
-                    if isPartOfPiece x y then
-                        Filled piece.color
-                    else
-                        cell
+viewLockedCells : Board -> List Int -> Float -> List (Svg Msg)
+viewLockedCells board clearingRows cellSize =
+    board
+        |> List.indexedMap (\y row ->
+            row
+                |> List.indexedMap (\x cell ->
+                    let
+                        isClearing = List.member y clearingRows
+                    in
+                    case cell of
+                        Empty ->
+                            rect
+                                [ SvgAttr.x (String.fromFloat (toFloat x * cellSize))
+                                , SvgAttr.y (String.fromFloat (toFloat y * cellSize))
+                                , SvgAttr.width (String.fromFloat cellSize)
+                                , SvgAttr.height (String.fromFloat cellSize)
+                                , SvgAttr.fill "#0f0f23"
+                                , SvgAttr.stroke "#16213e"
+                                , SvgAttr.strokeWidth "1"
+                                ]
+                                []
+                        
+                        Filled color ->
+                            if isClearing then
+                                rect
+                                    [ SvgAttr.x (String.fromFloat (toFloat x * cellSize))
+                                    , SvgAttr.y (String.fromFloat (toFloat y * cellSize))
+                                    , SvgAttr.width (String.fromFloat cellSize)
+                                    , SvgAttr.height (String.fromFloat cellSize)
+                                    , SvgAttr.fill "#ffffff"
+                                    , SvgAttr.stroke "#ffff00"
+                                    , SvgAttr.strokeWidth "2"
+                                    , SvgAttr.rx "2"
+                                    , SvgAttr.class "clearing-cell"
+                                    ]
+                                    []
+                            else
+                                rect
+                                    [ SvgAttr.x (String.fromFloat (toFloat x * cellSize + 1))
+                                    , SvgAttr.y (String.fromFloat (toFloat y * cellSize + 1))
+                                    , SvgAttr.width (String.fromFloat (cellSize - 2))
+                                    , SvgAttr.height (String.fromFloat (cellSize - 2))
+                                    , SvgAttr.fill (colorToString color)
+                                    , SvgAttr.stroke (colorToLightString color)
+                                    , SvgAttr.strokeWidth "1.5"
+                                    , SvgAttr.rx "2"
+                                    , SvgAttr.filter "url(#glow)"
+                                    ]
+                                    []
                 )
-                row
         )
-        board
+        |> List.concat
 
-viewCellInRow : Int -> Model -> Int -> Cell -> Html Msg
-viewCellInRow rowIndex model colIndex cell =
+viewPieceSVG : Piece -> Float -> Svg Msg
+viewPieceSVG piece cellSize =
     let
-        isClearing = List.member rowIndex model.clearingRows
+        centerX = toFloat piece.position.x * cellSize + cellSize * 1.5
+        centerY = toFloat piece.position.y * cellSize + cellSize * 1.5
         
-        (bgColor, borderColor, boxShadow) =
-            if isClearing then
-                -- Flash white when clearing
-                ("#ffffff", "#ffff00", "0 0 20px #ffff00, inset 0 0 10px #ffffff")
-            else
-                case cell of
-                    Empty ->
-                        ("#0f0f23", "#16213e", "inset 0 0 5px rgba(0,0,0,0.3)")
-
-                    Filled c ->
-                        let
-                            color = colorToString c
-                            lightColor = colorToLightString c
-                        in
-                        (color, lightColor, "0 0 8px " ++ color ++ "80")
+        positions = getPiecePositions piece
     in
-    div
-        [ style "width" "25px"
-        , style "height" "25px"
-        , style "border" ("1px solid " ++ borderColor)
-        , style "background" bgColor
-        , style "box-sizing" "border-box"
-        , style "box-shadow" boxShadow
-        , style "transition" "all 0.15s ease"
-        , style "border-radius" "2px"
+    g 
+        [ SvgAttr.transform 
+            ("rotate(" ++ String.fromFloat piece.visualRotation 
+            ++ " " ++ String.fromFloat centerX 
+            ++ " " ++ String.fromFloat centerY ++ ")")
+        , SvgAttr.style "transition: transform 0.2s ease-out"
+        ]
+        (List.map (viewPieceCell piece.color cellSize) positions)
+
+viewPieceCell : Color -> Float -> Position -> Svg Msg
+viewPieceCell color cellSize pos =
+    rect
+        [ SvgAttr.x (String.fromFloat (toFloat pos.x * cellSize + 1))
+        , SvgAttr.y (String.fromFloat (toFloat pos.y * cellSize + 1))
+        , SvgAttr.width (String.fromFloat (cellSize - 2))
+        , SvgAttr.height (String.fromFloat (cellSize - 2))
+        , SvgAttr.fill (colorToString color)
+        , SvgAttr.stroke (colorToLightString color)
+        , SvgAttr.strokeWidth "1.5"
+        , SvgAttr.rx "2"
+        , SvgAttr.filter "url(#glow)"
         ]
         []
 

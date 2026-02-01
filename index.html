@@ -21,15 +21,91 @@
             width: 100vw;
             height: 100vh;
         }
+
+        @keyframes glow-pulse {
+            0%, 100% { filter: brightness(1); }
+            50% { filter: brightness(1.5); }
+        }
+
+        .clearing-cell {
+            animation: glow-pulse 0.2s ease-in-out 2;
+        }
     </style>
 </head>
 <body>
     <div id="app"></div>
+    
+    <!-- Audio elements for game sounds -->
+    <audio id="sound-move" preload="auto">
+        <source src="data:audio/wav;base64,UklGRhQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" type="audio/wav">
+    </audio>
+    <audio id="sound-rotate" preload="auto">
+        <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAiBMAAIgTAAABAAgAZGF0YQIAAAAB" type="audio/wav">
+    </audio>
+    <audio id="sound-lock" preload="auto">
+        <source src="data:audio/wav;base64,UklGRjQAAABXQVZFZm10IBAAAAABAAEAESsAABErAAABAAgAZGF0YRAAAAABAQIDBAUGBwgJCgsMDQ4P" type="audio/wav">
+    </audio>
+    <audio id="sound-clear" preload="auto">
+        <source src="data:audio/wav;base64,UklGRlQAAABXQVZFZm10IBAAAAABAAEAESsAABErAAABAAgAZGF0YTAAAAABAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8=" type="audio/wav">
+    </audio>
+
     <script src="main.js"></script>
     <script>
         var app = Elm.Main.init({
             node: document.getElementById('app')
         });
+
+        // Simple beep sound generation
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContext();
+
+        function playSound(type) {
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            switch(type) {
+                case 'move':
+                    oscillator.frequency.value = 200;
+                    gainNode.gain.value = 0.1;
+                    oscillator.start(audioCtx.currentTime);
+                    oscillator.stop(audioCtx.currentTime + 0.05);
+                    break;
+                case 'rotate':
+                    oscillator.frequency.value = 400;
+                    gainNode.gain.value = 0.15;
+                    oscillator.start(audioCtx.currentTime);
+                    oscillator.stop(audioCtx.currentTime + 0.08);
+                    break;
+                case 'lock':
+                    oscillator.frequency.value = 150;
+                    gainNode.gain.value = 0.2;
+                    oscillator.start(audioCtx.currentTime);
+                    oscillator.stop(audioCtx.currentTime + 0.1);
+                    break;
+                case 'clear':
+                    // Play a rising tone
+                    oscillator.frequency.setValueAtTime(300, audioCtx.currentTime);
+                    oscillator.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.3);
+                    gainNode.gain.value = 0.25;
+                    oscillator.start(audioCtx.currentTime);
+                    oscillator.stop(audioCtx.currentTime + 0.3);
+                    break;
+            }
+        }
+
+        // Listen for model changes and play sounds
+        let lastSound = '';
+        const observer = new MutationObserver(() => {
+            const soundAttr = document.body.getAttribute('data-sound');
+            if (soundAttr && soundAttr !== lastSound) {
+                playSound(soundAttr);
+                lastSound = soundAttr;
+            }
+        });
+        observer.observe(document.body, { attributes: true });
     </script>
 </body>
 </html>
