@@ -11,14 +11,15 @@ The game is automatically deployed from this repository using GitHub Actions.
 ## Features
 
 - **Classic Tetris Gameplay**: All 7 standard tetrominoes (I, O, T, S, Z, J, L)
-- **Rotation System**: Piece rotation with wall kick support
+- **Rotation System**: Piece rotation with wall kick support ✅ Fixed!
 - **Collision Detection**: Proper collision handling for board boundaries and other pieces
 - **Line Clearing**: Clear complete lines and earn points
 - **Progressive Difficulty**: Speed increases every 10 lines cleared
 - **Scoring System**: Points awarded for lines cleared and hard drops
-- **Next Piece Preview**: See the next 3 pieces coming
+- **Next Piece Preview**: See the next 3 pieces coming in a horizontal pipeline
 - **Game States**: Playing, Paused, and Game Over states
 - **Responsive Controls**: Keyboard controls for all actions
+- **🔊 Sound Effects**: Audio feedback for moves, rotations, locks, and line clears
 - **🆕 Hold Piece**: Store one piece to swap with later (H key)
 - **🆕 Ghost Piece**: Preview where the current piece will land with a dotted outline
 - **🆕 High Score**: Track and display your highest score across games
