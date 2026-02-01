@@ -664,6 +664,10 @@ incrementStatistics tetrominoType stats =
         J -> { stats | jPieces = stats.jPieces + 1 }
         L -> { stats | lPieces = stats.lPieces + 1 }
 
+getTotalPieces : Statistics -> Int
+getTotalPieces stats =
+    stats.iPieces + stats.oPieces + stats.tPieces + stats.sPieces + stats.zPieces + stats.jPieces + stats.lPieces
+
 
 -- GHOST PIECE
 
@@ -1112,7 +1116,7 @@ viewStatistics : Model -> Html Msg
 viewStatistics model =
     let
         stats = model.statistics
-        total = stats.iPieces + stats.oPieces + stats.tPieces + stats.sPieces + stats.zPieces + stats.jPieces + stats.lPieces
+        total = getTotalPieces stats
     in
     if total == 0 then
         text ""

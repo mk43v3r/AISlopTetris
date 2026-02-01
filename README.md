@@ -152,6 +152,8 @@ To enable GitHub Pages deployment:
 2. Under "Build and deployment", select **Source**: `GitHub Actions`
 3. The workflow will automatically deploy on the next push
 
+**Note**: Until GitHub Pages is configured in repository settings, workflow runs will show as "action_required". This is normal and will resolve once Pages is enabled with GitHub Actions as the source.
+
 ### Manual Deployment
 
 If you fork this repository and want to deploy to your own GitHub Pages:
