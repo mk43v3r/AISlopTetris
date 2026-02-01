@@ -16,9 +16,14 @@ The game is automatically deployed from this repository using GitHub Actions.
 - **Line Clearing**: Clear complete lines and earn points
 - **Progressive Difficulty**: Speed increases every 10 lines cleared
 - **Scoring System**: Points awarded for lines cleared and hard drops
-- **Next Piece Preview**: See the next piece coming
+- **Next Piece Preview**: See the next 3 pieces coming
 - **Game States**: Playing, Paused, and Game Over states
 - **Responsive Controls**: Keyboard controls for all actions
+- **🆕 Hold Piece**: Store one piece to swap with later (H key)
+- **🆕 Ghost Piece**: Preview where the current piece will land with a dotted outline
+- **🆕 High Score**: Track and display your highest score across games
+- **🆕 Combo System**: Earn bonus points for consecutive line clears
+- **🆕 Statistics**: Track how many of each piece type you've used
 
 ## Requirements
 
@@ -84,6 +89,7 @@ Then navigate to `http://localhost:8000` in your browser.
 - **↓** : Move piece down faster (soft drop)
 - **↑** : Rotate piece clockwise
 - **Space** : Hard drop (instantly drop to bottom)
+- **H** : Hold piece (store current piece to swap later)
 - **P** : Pause/unpause game
 
 ## Game Rules
@@ -94,10 +100,12 @@ Then navigate to `http://localhost:8000` in your browser.
   - 3 lines: 300 × level
   - 4 lines (Tetris): 1200 × level
   - Hard drop: 2 points per row dropped
+  - Combo bonus: 50 × level × (combo - 1) for consecutive line clears
 
 - **Levels**: Level increases every 10 lines cleared
-- **Speed**: Drop speed increases by 100ms per level (minimum 100ms)
+- **Speed**: Drop speed increases by 75ms per level (minimum 100ms)
 - **Game Over**: Game ends when a new piece cannot be placed at the top
+- **Hold Piece**: You can hold one piece at a time, but can only swap once per turn
 
 ## Project Structure
 
@@ -127,7 +135,7 @@ Then navigate to `http://localhost:8000` and open `src/Main.elm`.
 
 ## Deployment
 
-The game is automatically deployed to GitHub Pages when changes are pushed to the `copilot/build-elm-tetris-game` branch.
+The game is automatically deployed to GitHub Pages when changes are pushed to the `copilot/add-features-and-publish` branch.
 
 ### Automatic Deployment
 
