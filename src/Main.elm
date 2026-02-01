@@ -14,6 +14,11 @@ import Svg exposing (svg, rect, g, Svg)
 import Svg.Attributes as SvgAttr
 
 
+-- PORTS
+
+port playSound : String -> Cmd msg
+
+
 -- MAIN
 
 main : Program () Model Msg
@@ -191,25 +196,7 @@ update msg model =
                 ( model, Cmd.none )
 
         AnimationTick _ ->
-            -- Update visual rotation animation
-            case model.currentPiece of
-                Just piece ->
-                    let
-                        targetRotation = toFloat piece.rotation * 90
-                        currentRotation = piece.visualRotation
-                        diff = targetRotation - currentRotation
-                        newRotation = 
-                            if abs diff < 5 then
-                                targetRotation
-                            else
-                                currentRotation + diff * 0.3
-                        
-                        updatedPiece = { piece | visualRotation = newRotation }
-                    in
-                    ( { model | currentPiece = Just updatedPiece }, Cmd.none )
-                
-                Nothing ->
-                    ( model, Cmd.none )
+            ( model, Cmd.none )
 
         NewPiece tetrominoType ->
             case model.currentPiece of
@@ -248,7 +235,7 @@ update msg model =
                     newModel = movePiece { x = -1, y = 0 } model
                 in
                 ( if newModel /= model then { newModel | lastSound = "move" } else newModel
-                , Cmd.none 
+                , if newModel /= model then playSound "move" else Cmd.none
                 )
             else
                 ( model, Cmd.none )
@@ -259,7 +246,7 @@ update msg model =
                     newModel = movePiece { x = 1, y = 0 } model
                 in
                 ( if newModel /= model then { newModel | lastSound = "move" } else newModel
-                , Cmd.none 
+                , if newModel /= model then playSound "move" else Cmd.none
                 )
             else
                 ( model, Cmd.none )
@@ -272,7 +259,12 @@ update msg model =
 
         Rotate ->
             if model.gameState == Playing then
-                ( rotatePiece model, Cmd.none )
+                let
+                    newModel = rotatePiece model
+                in
+                ( newModel
+                , if newModel.lastSound == "rotate" then playSound "rotate" else Cmd.none
+                )
             else
                 ( model, Cmd.none )
 
@@ -416,7 +408,10 @@ lockPiece model =
                     , clearingRows = rowsToClear
                     , lastSound = "clear"
                   }
-                , Task.perform (\_ -> CompleteClearAnimation) (Process.sleep 400)
+                , Cmd.batch
+                    [ Task.perform (\_ -> CompleteClearAnimation) (Process.sleep 400)
+                    , playSound "clear"
+                    ]
                 )
             else
                 -- No lines to clear, spawn next piece immediately
@@ -425,7 +420,10 @@ lockPiece model =
                     , currentPiece = Nothing
                     , lastSound = "lock"
                   }
-                , Random.generate NewPiece randomTetromino
+                , Cmd.batch
+                    [ Random.generate NewPiece randomTetromino
+                    , playSound "lock"
+                    ]
                 )
 
 getRowsToClear : Board -> List Int
@@ -493,7 +491,6 @@ rotatePiece model =
                     { piece 
                     | shape = rotatedShape
                     , rotation = piece.rotation + 1
-                    , visualRotation = toFloat (piece.rotation + 1) * 90
                     }
             in
             if canPlacePiece rotatedPiece model.board then
@@ -871,18 +868,9 @@ viewLockedCells board clearingRows cellSize =
 viewPieceSVG : Piece -> Float -> Svg Msg
 viewPieceSVG piece cellSize =
     let
-        centerX = toFloat piece.position.x * cellSize + cellSize * 1.5
-        centerY = toFloat piece.position.y * cellSize + cellSize * 1.5
-        
         positions = getPiecePositions piece
     in
-    g 
-        [ SvgAttr.transform 
-            ("rotate(" ++ String.fromFloat piece.visualRotation 
-            ++ " " ++ String.fromFloat centerX 
-            ++ " " ++ String.fromFloat centerY ++ ")")
-        , SvgAttr.style "transition: transform 0.2s ease-out"
-        ]
+    g []
         (List.map (viewPieceCell piece.color cellSize) positions)
 
 viewPieceCell : Color -> Float -> Position -> Svg Msg
@@ -1059,8 +1047,9 @@ viewNextPiece model =
         [ h2 [ style "margin-top" "0", style "color" "#00ff88", style "text-shadow" "0 0 10px rgba(0, 255, 136, 0.5)" ] [ text "Next Pieces" ]
         , div
             [ style "display" "flex"
-            , style "flex-direction" "column"
+            , style "flex-direction" "row"
             , style "gap" "10px"
+            , style "justify-content" "flex-start"
             ]
             (List.indexedMap viewNextPiecePreview (List.take 3 model.nextPieces))
         ]
@@ -1068,18 +1057,22 @@ viewNextPiece model =
 viewNextPiecePreview : Int -> TetrominoType -> Html Msg
 viewNextPiecePreview index tetrominoType =
     let
-        opacity = String.fromFloat (1.0 - (toFloat index * 0.25))
-        scale = String.fromFloat (1.0 - (toFloat index * 0.1))
+        opacity = String.fromFloat (1.0 - (toFloat index * 0.15))
+        scale = String.fromFloat (1.0 - (toFloat index * 0.15))
     in
     div
         [ style "background-color" "#0f0f23"
-        , style "padding" "8px"
+        , style "padding" "6px"
         , style "border-radius" "5px"
         , style "border" (if index == 0 then "2px solid #00ff88" else "2px solid #2a2a4e")
         , style "transition" "all 0.3s ease"
         , style "opacity" opacity
         , style "transform" ("scale(" ++ scale ++ ")")
         , style "box-shadow" (if index == 0 then "0 0 15px rgba(0, 255, 136, 0.3)" else "0 2px 8px rgba(0, 0, 0, 0.2)")
+        , style "min-width" "60px"
+        , style "display" "flex"
+        , style "align-items" "center"
+        , style "justify-content" "center"
         ]
         [ viewTetromino tetrominoType ]
 
