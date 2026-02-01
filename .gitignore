@@ -1,0 +1,18 @@
+# Elm
+elm-stuff/
+main.js
+main.js.map
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
