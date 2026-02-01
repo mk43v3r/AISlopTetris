@@ -2,6 +2,12 @@
 
 A fully playable Tetris game built with Elm 0.19.1. Features standard tetromino pieces, rotation, collision detection, line clearing, levels, and scoring.
 
+## 🎮 Play Online
+
+**[Play the game now on GitHub Pages!](https://mk43v3r.github.io/AISlopTetris/)**
+
+The game is automatically deployed from this repository using GitHub Actions.
+
 ## Features
 
 - **Classic Tetris Gameplay**: All 7 standard tetrominoes (I, O, T, S, Z, J, L)
@@ -118,6 +124,26 @@ For development with live reload, you can use:
 elm reactor
 ```
 Then navigate to `http://localhost:8000` and open `src/Main.elm`.
+
+## Deployment
+
+The game is automatically deployed to GitHub Pages when changes are pushed to the `copilot/build-elm-tetris-game` branch.
+
+### Automatic Deployment
+
+A GitHub Actions workflow (`.github/workflows/deploy.yml`) automatically:
+1. Builds the Elm application
+2. Deploys to GitHub Pages
+3. Makes the game available at: https://mk43v3r.github.io/AISlopTetris/
+
+### Manual Deployment
+
+If you fork this repository and want to deploy to your own GitHub Pages:
+
+1. Go to your repository Settings → Pages
+2. Under "Build and deployment", select "GitHub Actions" as the source
+3. Push changes to trigger the deployment workflow
+4. Your game will be available at `https://[your-username].github.io/AISlopTetris/`
 
 ## Technologies Used
 
