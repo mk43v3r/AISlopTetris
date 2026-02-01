@@ -14,6 +14,11 @@ import Svg exposing (svg, rect, g, Svg)
 import Svg.Attributes as SvgAttr
 
 
+-- PORTS
+
+port playSound : String -> Cmd msg
+
+
 -- MAIN
 
 main : Program () Model Msg
@@ -40,6 +45,11 @@ type alias Model =
     , clearingRows : List Int
     , animationFrame : Float
     , lastSound : String
+    , heldPiece : Maybe TetrominoType
+    , hasSwappedThisTurn : Bool
+    , highScore : Int
+    , combo : Int
+    , statistics : Statistics
     }
 
 type GameState
@@ -73,6 +83,16 @@ type TetrominoType
 
 type Color
     = Cyan | Yellow | Purple | Green | Red | Blue | Orange
+
+type alias Statistics =
+    { iPieces : Int
+    , oPieces : Int
+    , tPieces : Int
+    , sPieces : Int
+    , zPieces : Int
+    , jPieces : Int
+    , lPieces : Int
+    }
 
 boardWidth : Int
 boardWidth = 10
@@ -128,6 +148,11 @@ init _ =
       , clearingRows = []
       , animationFrame = 0
       , lastSound = ""
+      , heldPiece = Nothing
+      , hasSwappedThisTurn = False
+      , highScore = 0
+      , combo = 0
+      , statistics = { iPieces = 0, oPieces = 0, tPieces = 0, sPieces = 0, zPieces = 0, jPieces = 0, lPieces = 0 }
       }
     , Cmd.batch
         [ Random.generate NewPiece randomTetromino
@@ -159,6 +184,7 @@ type Msg
     | TogglePause
     | Restart
     | CompleteClearAnimation
+    | HoldPiece
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
@@ -170,25 +196,7 @@ update msg model =
                 ( model, Cmd.none )
 
         AnimationTick _ ->
-            -- Update visual rotation animation
-            case model.currentPiece of
-                Just piece ->
-                    let
-                        targetRotation = toFloat piece.rotation * 90
-                        currentRotation = piece.visualRotation
-                        diff = targetRotation - currentRotation
-                        newRotation = 
-                            if abs diff < 5 then
-                                targetRotation
-                            else
-                                currentRotation + diff * 0.3
-                        
-                        updatedPiece = { piece | visualRotation = newRotation }
-                    in
-                    ( { model | currentPiece = Just updatedPiece }, Cmd.none )
-                
-                Nothing ->
-                    ( model, Cmd.none )
+            ( model, Cmd.none )
 
         NewPiece tetrominoType ->
             case model.currentPiece of
@@ -199,17 +207,23 @@ update msg model =
                         piece = createPiece nextPiece
                         remainingPieces = List.drop 1 model.nextPieces
                         updatedPieces = remainingPieces ++ [ tetrominoType ]
+                        updatedStats = incrementStatistics nextPiece model.statistics
                     in
                     if canPlacePiece piece model.board then
                         ( { model 
                           | currentPiece = Just piece
                           , nextPieces = updatedPieces
+                          , hasSwappedThisTurn = False
+                          , statistics = updatedStats
                           }
                         , Cmd.none
                         )
                     else
                         -- Game over - can't place new piece
-                        ( { model | gameState = GameOver }, Cmd.none )
+                        let
+                            newHighScore = max model.score model.highScore
+                        in
+                        ( { model | gameState = GameOver, highScore = newHighScore }, Cmd.none )
 
                 Just _ ->
                     -- Add to end of next pieces queue
@@ -221,7 +235,7 @@ update msg model =
                     newModel = movePiece { x = -1, y = 0 } model
                 in
                 ( if newModel /= model then { newModel | lastSound = "move" } else newModel
-                , Cmd.none 
+                , if newModel /= model then playSound "move" else Cmd.none
                 )
             else
                 ( model, Cmd.none )
@@ -232,7 +246,7 @@ update msg model =
                     newModel = movePiece { x = 1, y = 0 } model
                 in
                 ( if newModel /= model then { newModel | lastSound = "move" } else newModel
-                , Cmd.none 
+                , if newModel /= model then playSound "move" else Cmd.none
                 )
             else
                 ( model, Cmd.none )
@@ -245,7 +259,12 @@ update msg model =
 
         Rotate ->
             if model.gameState == Playing then
-                ( rotatePiece model, Cmd.none )
+                let
+                    newModel = rotatePiece model
+                in
+                ( newModel
+                , if newModel.lastSound == "rotate" then playSound "rotate" else Cmd.none
+                )
             else
                 ( model, Cmd.none )
 
@@ -267,6 +286,12 @@ update msg model =
         Restart ->
             init ()
 
+        HoldPiece ->
+            if model.gameState == Playing && not model.hasSwappedThisTurn then
+                holdCurrentPiece model
+            else
+                ( model, Cmd.none )
+
         CompleteClearAnimation ->
             let
                 ( clearedBoard, linesCleared ) =
@@ -275,14 +300,32 @@ update msg model =
                 newLinesCleared =
                     model.linesCleared + linesCleared
 
+                -- Combo system: increment combo if lines were cleared, reset if not
+                newCombo =
+                    if linesCleared > 0 then
+                        model.combo + 1
+                    else
+                        0
+
+                -- Bonus score for combo
+                comboBonus =
+                    if newCombo > 1 then
+                        50 * model.level * (newCombo - 1)
+                    else
+                        0
+
+                baseScore = scoreForLines linesCleared model.level
+
                 newScore =
-                    model.score + scoreForLines linesCleared model.level
+                    model.score + baseScore + comboBonus
 
                 newLevel =
                     1 + (newLinesCleared // 10)
 
                 newDropSpeed =
                     max 100 (1000 - toFloat (newLevel - 1) * 75)
+
+                newHighScore = max newScore model.highScore
             in
             ( { model
                 | board = clearedBoard
@@ -291,6 +334,8 @@ update msg model =
                 , level = newLevel
                 , linesCleared = newLinesCleared
                 , dropSpeed = newDropSpeed
+                , combo = newCombo
+                , highScore = newHighScore
               }
             , Random.generate NewPiece randomTetromino
             )
@@ -363,7 +408,10 @@ lockPiece model =
                     , clearingRows = rowsToClear
                     , lastSound = "clear"
                   }
-                , Task.perform (\_ -> CompleteClearAnimation) (Process.sleep 400)
+                , Cmd.batch
+                    [ Task.perform (\_ -> CompleteClearAnimation) (Process.sleep 400)
+                    , playSound "clear"
+                    ]
                 )
             else
                 -- No lines to clear, spawn next piece immediately
@@ -372,7 +420,10 @@ lockPiece model =
                     , currentPiece = Nothing
                     , lastSound = "lock"
                   }
-                , Random.generate NewPiece randomTetromino
+                , Cmd.batch
+                    [ Random.generate NewPiece randomTetromino
+                    , playSound "lock"
+                    ]
                 )
 
 getRowsToClear : Board -> List Int
@@ -440,7 +491,6 @@ rotatePiece model =
                     { piece 
                     | shape = rotatedShape
                     , rotation = piece.rotation + 1
-                    , visualRotation = toFloat (piece.rotation + 1) * 90
                     }
             in
             if canPlacePiece rotatedPiece model.board then
@@ -560,6 +610,69 @@ isLineFull row =
     List.all (\cell -> cell /= Empty) row
 
 
+-- HOLD PIECE
+
+holdCurrentPiece : Model -> ( Model, Cmd Msg )
+holdCurrentPiece model =
+    case model.currentPiece of
+        Nothing ->
+            ( model, Cmd.none )
+
+        Just currentPiece ->
+            case model.heldPiece of
+                Nothing ->
+                    -- First time holding - store current piece and spawn next
+                    ( { model 
+                        | heldPiece = Just currentPiece.tetrominoType
+                        , currentPiece = Nothing
+                        , hasSwappedThisTurn = True
+                      }
+                    , Random.generate NewPiece randomTetromino
+                    )
+
+                Just heldType ->
+                    -- Swap current with held
+                    let
+                        newPiece = createPiece heldType
+                    in
+                    if canPlacePiece newPiece model.board then
+                        ( { model 
+                            | heldPiece = Just currentPiece.tetrominoType
+                            , currentPiece = Just newPiece
+                            , hasSwappedThisTurn = True
+                          }
+                        , Cmd.none
+                        )
+                    else
+                        -- Can't place held piece, don't swap
+                        ( model, Cmd.none )
+
+
+-- STATISTICS
+
+incrementStatistics : TetrominoType -> Statistics -> Statistics
+incrementStatistics tetrominoType stats =
+    case tetrominoType of
+        I -> { stats | iPieces = stats.iPieces + 1 }
+        O -> { stats | oPieces = stats.oPieces + 1 }
+        T -> { stats | tPieces = stats.tPieces + 1 }
+        S -> { stats | sPieces = stats.sPieces + 1 }
+        Z -> { stats | zPieces = stats.zPieces + 1 }
+        J -> { stats | jPieces = stats.jPieces + 1 }
+        L -> { stats | lPieces = stats.lPieces + 1 }
+
+getTotalPieces : Statistics -> Int
+getTotalPieces stats =
+    stats.iPieces + stats.oPieces + stats.tPieces + stats.sPieces + stats.zPieces + stats.jPieces + stats.lPieces
+
+
+-- GHOST PIECE
+
+getGhostPiece : Piece -> Board -> Piece
+getGhostPiece piece board =
+    dropPieceToBottom piece board
+
+
 -- SUBSCRIPTIONS
 
 subscriptions : Model -> Sub Msg
@@ -599,6 +712,12 @@ keyDecoder =
 
                     "P" ->
                         Decode.succeed TogglePause
+
+                    "h" ->
+                        Decode.succeed HoldPiece
+
+                    "H" ->
+                        Decode.succeed HoldPiece
 
                     _ ->
                         Decode.fail "Not a game key"
@@ -670,6 +789,19 @@ viewBoard model =
             ]
             [ -- Draw locked cells
               g [] (viewLockedCells model.board model.clearingRows cellSize)
+            -- Draw ghost piece (preview of where piece will land)
+            , case model.currentPiece of
+                Just piece ->
+                    let
+                        ghostPiece = getGhostPiece piece model.board
+                    in
+                    if ghostPiece.position.y /= piece.position.y then
+                        viewGhostPieceSVG ghostPiece cellSize
+                    else
+                        g [] []
+                
+                Nothing ->
+                    g [] []
             -- Draw current piece with rotation
             , case model.currentPiece of
                 Just piece ->
@@ -736,18 +868,9 @@ viewLockedCells board clearingRows cellSize =
 viewPieceSVG : Piece -> Float -> Svg Msg
 viewPieceSVG piece cellSize =
     let
-        centerX = toFloat piece.position.x * cellSize + cellSize * 1.5
-        centerY = toFloat piece.position.y * cellSize + cellSize * 1.5
-        
         positions = getPiecePositions piece
     in
-    g 
-        [ SvgAttr.transform 
-            ("rotate(" ++ String.fromFloat piece.visualRotation 
-            ++ " " ++ String.fromFloat centerX 
-            ++ " " ++ String.fromFloat centerY ++ ")")
-        , SvgAttr.style "transition: transform 0.2s ease-out"
-        ]
+    g []
         (List.map (viewPieceCell piece.color cellSize) positions)
 
 viewPieceCell : Color -> Float -> Position -> Svg Msg
@@ -762,6 +885,30 @@ viewPieceCell color cellSize pos =
         , SvgAttr.strokeWidth "1.5"
         , SvgAttr.rx "2"
         , SvgAttr.filter "url(#glow)"
+        ]
+        []
+
+viewGhostPieceSVG : Piece -> Float -> Svg Msg
+viewGhostPieceSVG piece cellSize =
+    let
+        positions = getPiecePositions piece
+    in
+    g []
+        (List.map (viewGhostPieceCell piece.color cellSize) positions)
+
+viewGhostPieceCell : Color -> Float -> Position -> Svg Msg
+viewGhostPieceCell color cellSize pos =
+    rect
+        [ SvgAttr.x (String.fromFloat (toFloat pos.x * cellSize + 1))
+        , SvgAttr.y (String.fromFloat (toFloat pos.y * cellSize + 1))
+        , SvgAttr.width (String.fromFloat (cellSize - 2))
+        , SvgAttr.height (String.fromFloat (cellSize - 2))
+        , SvgAttr.fill "none"
+        , SvgAttr.stroke (colorToLightString color)
+        , SvgAttr.strokeWidth "2"
+        , SvgAttr.strokeDasharray "4,4"
+        , SvgAttr.rx "2"
+        , SvgAttr.opacity "0.4"
         ]
         []
 
@@ -821,7 +968,9 @@ viewSidebar model =
         , style "min-width" "200px"
         ]
         [ viewScoreboard model
+        , viewHoldPiece model
         , viewNextPiece model
+        , viewStatistics model
         ]
 
 viewScoreboard : Model -> Html Msg
@@ -836,10 +985,54 @@ viewScoreboard model =
         ]
         [ h2 [ style "margin-top" "0", style "color" "#00ff88", style "text-shadow" "0 0 10px rgba(0, 255, 136, 0.5)" ] [ text "Score" ]
         , p [ style "font-size" "28px", style "margin" "10px 0", style "font-weight" "bold", style "color" "#00ff88" ] [ text (String.fromInt model.score) ]
+        , if model.highScore > 0 then
+            div []
+                [ h2 [ style "margin-top" "15px", style "color" "#ffaa00", style "font-size" "16px", style "text-shadow" "0 0 10px rgba(255, 170, 0, 0.5)" ] [ text "High Score" ]
+                , p [ style "font-size" "20px", style "margin" "5px 0", style "font-weight" "bold", style "color" "#ffaa00" ] [ text (String.fromInt model.highScore) ]
+                ]
+          else
+            text ""
         , h2 [ style "margin-top" "15px", style "color" "#00ff88", style "text-shadow" "0 0 10px rgba(0, 255, 136, 0.5)" ] [ text "Level" ]
         , p [ style "font-size" "28px", style "margin" "10px 0", style "font-weight" "bold", style "color" "#00ff88" ] [ text (String.fromInt model.level) ]
         , h2 [ style "margin-top" "15px", style "color" "#00ff88", style "text-shadow" "0 0 10px rgba(0, 255, 136, 0.5)" ] [ text "Lines" ]
         , p [ style "font-size" "28px", style "margin" "10px 0", style "font-weight" "bold", style "color" "#00ff88" ] [ text (String.fromInt model.linesCleared) ]
+        , if model.combo > 1 then
+            div []
+                [ h2 [ style "margin-top" "15px", style "color" "#ff00ff", style "font-size" "16px", style "text-shadow" "0 0 10px rgba(255, 0, 255, 0.5)" ] [ text "Combo!" ]
+                , p [ style "font-size" "24px", style "margin" "5px 0", style "font-weight" "bold", style "color" "#ff00ff" ] [ text (String.fromInt model.combo ++ "x") ]
+                ]
+          else
+            text ""
+        ]
+
+viewHoldPiece : Model -> Html Msg
+viewHoldPiece model =
+    div
+        [ style "background" "linear-gradient(135deg, #16213e 0%, #1a2847 100%)"
+        , style "padding" "15px"
+        , style "border-radius" "8px"
+        , style "margin-bottom" "20px"
+        , style "box-shadow" "0 4px 15px rgba(0, 0, 0, 0.3)"
+        , style "border" "1px solid #2a3a5e"
+        ]
+        [ h2 [ style "margin-top" "0", style "color" "#00ff88", style "text-shadow" "0 0 10px rgba(0, 255, 136, 0.5)" ] [ text "Hold (H)" ]
+        , div
+            [ style "background-color" "#0f0f23"
+            , style "padding" "8px"
+            , style "border-radius" "5px"
+            , style "border" "2px solid #00ff88"
+            , style "min-height" "60px"
+            , style "display" "flex"
+            , style "align-items" "center"
+            , style "justify-content" "center"
+            ]
+            [ case model.heldPiece of
+                Just tetrominoType ->
+                    viewTetromino tetrominoType
+                
+                Nothing ->
+                    p [ style "color" "#555", style "margin" "0", style "font-size" "12px" ] [ text "Empty" ]
+            ]
         ]
 
 viewNextPiece : Model -> Html Msg
@@ -854,8 +1047,9 @@ viewNextPiece model =
         [ h2 [ style "margin-top" "0", style "color" "#00ff88", style "text-shadow" "0 0 10px rgba(0, 255, 136, 0.5)" ] [ text "Next Pieces" ]
         , div
             [ style "display" "flex"
-            , style "flex-direction" "column"
+            , style "flex-direction" "row"
             , style "gap" "10px"
+            , style "justify-content" "flex-start"
             ]
             (List.indexedMap viewNextPiecePreview (List.take 3 model.nextPieces))
         ]
@@ -863,18 +1057,23 @@ viewNextPiece model =
 viewNextPiecePreview : Int -> TetrominoType -> Html Msg
 viewNextPiecePreview index tetrominoType =
     let
-        opacity = String.fromFloat (1.0 - (toFloat index * 0.25))
-        scale = String.fromFloat (1.0 - (toFloat index * 0.1))
+        fadeScaleFactor = 0.15
+        opacity = String.fromFloat (1.0 - (toFloat index * fadeScaleFactor))
+        scale = String.fromFloat (1.0 - (toFloat index * fadeScaleFactor))
     in
     div
         [ style "background-color" "#0f0f23"
-        , style "padding" "8px"
+        , style "padding" "6px"
         , style "border-radius" "5px"
         , style "border" (if index == 0 then "2px solid #00ff88" else "2px solid #2a2a4e")
         , style "transition" "all 0.3s ease"
         , style "opacity" opacity
         , style "transform" ("scale(" ++ scale ++ ")")
         , style "box-shadow" (if index == 0 then "0 0 15px rgba(0, 255, 136, 0.3)" else "0 2px 8px rgba(0, 0, 0, 0.2)")
+        , style "min-width" "60px"
+        , style "display" "flex"
+        , style "align-items" "center"
+        , style "justify-content" "center"
         ]
         [ viewTetromino tetrominoType ]
 
@@ -907,6 +1106,60 @@ viewRowSimple row =
         [ style "display" "flex" ]
         (List.map viewCell row)
 
+viewStatistics : Model -> Html Msg
+viewStatistics model =
+    let
+        stats = model.statistics
+        total = getTotalPieces stats
+    in
+    if total == 0 then
+        text ""
+    else
+        div
+            [ style "background" "linear-gradient(135deg, #16213e 0%, #1a2847 100%)"
+            , style "padding" "12px"
+            , style "border-radius" "8px"
+            , style "margin-top" "20px"
+            , style "box-shadow" "0 4px 15px rgba(0, 0, 0, 0.3)"
+            , style "border" "1px solid #2a3a5e"
+            ]
+            [ h2 [ style "margin-top" "0", style "margin-bottom" "8px", style "color" "#00ff88", style "font-size" "16px", style "text-shadow" "0 0 10px rgba(0, 255, 136, 0.5)" ] [ text "Statistics" ]
+            , viewStatRow "I" stats.iPieces Cyan
+            , viewStatRow "O" stats.oPieces Yellow
+            , viewStatRow "T" stats.tPieces Purple
+            , viewStatRow "S" stats.sPieces Green
+            , viewStatRow "Z" stats.zPieces Red
+            , viewStatRow "J" stats.jPieces Blue
+            , viewStatRow "L" stats.lPieces Orange
+            ]
+
+viewStatRow : String -> Int -> Color -> Html Msg
+viewStatRow name count color =
+    div
+        [ style "display" "flex"
+        , style "justify-content" "space-between"
+        , style "align-items" "center"
+        , style "margin" "3px 0"
+        , style "padding" "2px"
+        ]
+        [ div
+            [ style "display" "flex"
+            , style "align-items" "center"
+            , style "gap" "6px"
+            ]
+            [ div
+                [ style "width" "16px"
+                , style "height" "16px"
+                , style "background" (colorToString color)
+                , style "border" ("1px solid " ++ colorToLightString color)
+                , style "border-radius" "2px"
+                ]
+                []
+            , p [ style "margin" "0", style "color" "#ccc", style "font-size" "13px" ] [ text name ]
+            ]
+        , p [ style "margin" "0", style "color" "#00ff88", style "font-weight" "bold", style "font-size" "13px" ] [ text (String.fromInt count) ]
+        ]
+
 viewControls : Html Msg
 viewControls =
     div
@@ -925,6 +1178,7 @@ viewControls =
         , p [ style "margin" "8px 0" ] [ text "↓ : Move Down" ]
         , p [ style "margin" "8px 0" ] [ text "↑ : Rotate" ]
         , p [ style "margin" "8px 0" ] [ text "Space : Hard Drop" ]
+        , p [ style "margin" "8px 0" ] [ text "H : Hold Piece" ]
         , p [ style "margin" "8px 0" ] [ text "P : Pause" ]
         , button
             [ onClick Restart

@@ -96,16 +96,12 @@
             }
         }
 
-        // Listen for model changes and play sounds
-        let lastSound = '';
-        const observer = new MutationObserver(() => {
-            const soundAttr = document.body.getAttribute('data-sound');
-            if (soundAttr && soundAttr !== lastSound) {
-                playSound(soundAttr);
-                lastSound = soundAttr;
-            }
-        });
-        observer.observe(document.body, { attributes: true });
+        // Subscribe to the playSound port
+        if (app.ports && app.ports.playSound) {
+            app.ports.playSound.subscribe(function(soundType) {
+                playSound(soundType);
+            });
+        }
     </script>
 </body>
 </html>
