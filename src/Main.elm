@@ -1057,8 +1057,9 @@ viewNextPiece model =
 viewNextPiecePreview : Int -> TetrominoType -> Html Msg
 viewNextPiecePreview index tetrominoType =
     let
-        opacity = String.fromFloat (1.0 - (toFloat index * 0.15))
-        scale = String.fromFloat (1.0 - (toFloat index * 0.15))
+        fadeScaleFactor = 0.15
+        opacity = String.fromFloat (1.0 - (toFloat index * fadeScaleFactor))
+        scale = String.fromFloat (1.0 - (toFloat index * fadeScaleFactor))
     in
     div
         [ style "background-color" "#0f0f23"
