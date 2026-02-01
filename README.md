@@ -136,13 +136,22 @@ A GitHub Actions workflow (`.github/workflows/deploy.yml`) automatically:
 2. Deploys to GitHub Pages
 3. Makes the game available at: https://mk43v3r.github.io/AISlopTetris/
 
+### First-Time Setup
+
+To enable GitHub Pages deployment:
+
+1. Go to repository **Settings** → **Pages**
+2. Under "Build and deployment", select **Source**: `GitHub Actions`
+3. The workflow will automatically deploy on the next push
+
 ### Manual Deployment
 
 If you fork this repository and want to deploy to your own GitHub Pages:
 
-1. Go to your repository Settings → Pages
-2. Under "Build and deployment", select "GitHub Actions" as the source
-3. Push changes to trigger the deployment workflow
+1. Fork the repository to your GitHub account
+2. Go to your repository Settings → Pages
+3. Under "Build and deployment", select "GitHub Actions" as the source
+4. Push changes to trigger the deployment workflow
 4. Your game will be available at `https://[your-username].github.io/AISlopTetris/`
 
 ## Technologies Used
